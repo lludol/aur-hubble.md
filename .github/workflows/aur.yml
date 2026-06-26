@@ -1,0 +1,129 @@
+# Auto-update the AUR packages from bholmesdev/hubble.md latest desktop release.
+#
+# - hubble.md      builds from source against the system Electron.
+# - hubble.md-bin  repackages the upstream per-arch .deb release.
+#
+# updpkgsums re-downloads the sources to refresh sha256sums. Runs daily at
+# 3AM UTC and on manual workflow_dispatch.
+name: Auto Update AUR Packages
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Get latest Hubble desktop release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Upstream tags desktop releases as desktop-v<version>; strip the prefix.
+          TAG=$(gh api repos/bholmesdev/hubble.md/releases/latest --jq '.tag_name' 2>/dev/null || true)
+          if [ "$TAG" = "null" ] || [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/bholmesdev/hubble.md/tags?per_page=20" \
+              --jq '[.[].name | select(startswith("desktop-v"))][0]' 2>/dev/null || true)
+          fi
+          if [ "$TAG" = "null" ] || [ -z "$TAG" ]; then
+            echo "No release or tag found, skipping."
+            exit 0
+          fi
+          VER=${TAG#desktop-v}
+          echo "ver=${VER}" >> "$GITHUB_OUTPUT"
+          echo "Latest desktop version: ${VER}"
+
+      - name: Update hubble.md (source)
+        if: steps.tag.outputs.ver != ''
+        uses: heyhusen/archlinux-package-action@v3.0.0
+        with:
+          path: hubble.md
+          pkgver: ${{ steps.tag.outputs.ver }}
+          pkgrel: 1
+          updpkgsums: true
+          srcinfo: true
+          namcap: false
+          flags: ''
+          archlinux_keyring: false
+
+      - name: Update hubble.md-bin (binary)
+        if: steps.tag.outputs.ver != ''
+        uses: heyhusen/archlinux-package-action@v3.0.0
+        with:
+          path: hubble.md-bin
+          pkgver: ${{ steps.tag.outputs.ver }}
+          pkgrel: 1
+          updpkgsums: true
+          srcinfo: true
+          namcap: false
+          flags: ''
+          archlinux_keyring: false
+
+      - name: Commit and push if changed
+        if: steps.tag.outputs.ver != ''
+        run: |
+          cd "${GITHUB_WORKSPACE:-.}"
+          if [ ! -d .git ]; then
+            echo "Not a git repo (e.g. act local run); PKGBUILD/.SRCINFO were updated in place."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add hubble.md/PKGBUILD hubble.md/.SRCINFO hubble.md-bin/PKGBUILD hubble.md-bin/.SRCINFO
+          if git diff --staged --quiet; then
+            echo "No version changes."
+            exit 0
+          fi
+          git commit -m "chore: bump to ${{ steps.tag.outputs.ver }}"
+          git push
+
+      - name: Push to AUR (hubble.md)
+        if: steps.tag.outputs.ver != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && !cancelled()))
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME }}
+          AUR_EMAIL: ${{ vars.AUR_EMAIL }}
+        run: |
+          if [ -z "$AUR_SSH_KEY" ]; then echo "AUR_SSH_KEY not set, skipping AUR push"; exit 0; fi
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md.git aur-pkg
+          cp hubble.md/PKGBUILD hubble.md/.SRCINFO LICENSE aur-pkg/
+          cd aur-pkg
+          git config user.name "${AUR_USERNAME:-github-actions[bot]}"
+          git config user.email "${AUR_EMAIL:-github-actions[bot]@users.noreply.github.com}"
+          git add PKGBUILD .SRCINFO LICENSE
+          if git diff --staged --quiet; then echo "No AUR hubble.md changes"; exit 0; fi
+          git commit -m "chore: bump to ${{ steps.tag.outputs.ver }}"
+          git push
+
+      - name: Push to AUR (hubble.md-bin)
+        if: steps.tag.outputs.ver != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && !cancelled()))
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME }}
+          AUR_EMAIL: ${{ vars.AUR_EMAIL }}
+        run: |
+          if [ -z "$AUR_SSH_KEY" ]; then echo "AUR_SSH_KEY not set, skipping AUR push"; exit 0; fi
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+          git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md-bin.git aur-pkg-bin
+          cp hubble.md-bin/PKGBUILD hubble.md-bin/.SRCINFO LICENSE aur-pkg-bin/
+          cd aur-pkg-bin
+          git config user.name "${AUR_USERNAME:-github-actions[bot]}"
+          git config user.email "${AUR_EMAIL:-github-actions[bot]@users.noreply.github.com}"
+          git add PKGBUILD .SRCINFO LICENSE
+          if git diff --staged --quiet; then echo "No AUR hubble.md-bin changes"; exit 0; fi
+          git commit -m "chore: bump to ${{ steps.tag.outputs.ver }}"
+          git push

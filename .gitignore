@@ -1,0 +1,14 @@
+*
+!.gitignore
+!/LICENSE
+!/README.md
+!/MAINTAINER.md
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+!/hubble.md/
+!/hubble.md/PKGBUILD
+!/hubble.md/.SRCINFO
+!/hubble.md-bin/
+!/hubble.md-bin/PKGBUILD
+!/hubble.md-bin/.SRCINFO
