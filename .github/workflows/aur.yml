@@ -12,6 +12,11 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+# Serialize runs so two updates never race on the same branch.
+concurrency:
+  group: aur-update
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -82,7 +87,15 @@ jobs:
             exit 0
           fi
           git commit -m "chore: bump to ${{ steps.tag.outputs.ver }}"
-          git push
+          # Remote main may have advanced since checkout; rebase and retry.
+          branch="${GITHUB_REF_NAME:-main}"
+          for i in 1 2 3 4 5; do
+            git push origin "HEAD:${branch}" && exit 0
+            echo "Push rejected, rebasing onto origin/${branch} (attempt $i)"
+            git fetch origin "$branch"
+            git rebase "origin/${branch}" || { git rebase --abort; exit 1; }
+          done
+          echo "Push failed after retries"; exit 1
 
       - name: Push to AUR (hubble.md)
         if: steps.tag.outputs.ver != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && !cancelled()))
