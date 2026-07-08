@@ -58,8 +58,31 @@ jobs:
           flags: ''
           archlinux_keyring: false
 
-      - name: Update hubble.md-bin (binary)
+      - name: Check hubble.md-bin release assets
         if: steps.tag.outputs.ver != ''
+        id: bin_assets
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${{ steps.tag.outputs.ver }}"
+          missing=0
+          for asset in "hubble_${ver}_amd64.deb" "hubble_${ver}_arm64.deb"; do
+            if ! gh release view "desktop-v${ver}" -R bholmesdev/hubble.md --json assets \
+              --jq '.assets[].name' | grep -Fxq "$asset"; then
+              echo "Missing upstream binary asset: $asset"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping hubble.md-bin update for ${ver}; upstream did not publish all Linux .deb assets."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update hubble.md-bin (binary)
+        if: steps.tag.outputs.ver != '' && steps.bin_assets.outputs.available == 'true'
         uses: heyhusen/archlinux-package-action@v3.0.0
         with:
           path: hubble.md-bin
@@ -120,7 +143,7 @@ jobs:
           git push
 
       - name: Push to AUR (hubble.md-bin)
-        if: steps.tag.outputs.ver != '' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && !cancelled()))
+        if: steps.tag.outputs.ver != '' && steps.bin_assets.outputs.available == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && !cancelled()))
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           AUR_USERNAME: ${{ vars.AUR_USERNAME }}
