@@ -6,6 +6,8 @@
 !.github/
 !.github/workflows/
 !.github/workflows/*.yml
+!/tests/
+!/tests/*.py
 !/hubble.md/
 !/hubble.md/PKGBUILD
 !/hubble.md/.SRCINFO

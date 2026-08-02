@@ -132,7 +132,10 @@ jobs:
           echo "$AUR_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
-          git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md.git aur-pkg
+          if ! git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md.git aur-pkg; then
+            echo "::warning::AUR is unavailable; will retry on the next run."
+            exit 0
+          fi
           cp hubble.md/PKGBUILD hubble.md/.SRCINFO LICENSE aur-pkg/
           cd aur-pkg
           git config user.name "${AUR_USERNAME:-github-actions[bot]}"
@@ -154,7 +157,10 @@ jobs:
           echo "$AUR_SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
-          git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md-bin.git aur-pkg-bin
+          if ! git clone --depth 1 ssh://aur@aur.archlinux.org/hubble.md-bin.git aur-pkg-bin; then
+            echo "::warning::AUR is unavailable; will retry on the next run."
+            exit 0
+          fi
           cp hubble.md-bin/PKGBUILD hubble.md-bin/.SRCINFO LICENSE aur-pkg-bin/
           cd aur-pkg-bin
           git config user.name "${AUR_USERNAME:-github-actions[bot]}"
